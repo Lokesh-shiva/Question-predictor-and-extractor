@@ -1,0 +1,5 @@
+{
+  "name": "ExamExtractor",
+  "description": "Smartly extract, filter, and organize questions from exam paper PDFs and images using AI.",
+  "requestFramePermissions": []
+}
