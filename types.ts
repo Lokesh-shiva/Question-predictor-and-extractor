@@ -18,6 +18,10 @@ export interface Question {
   topic: string;
   pageNumber: number;
   confidenceScore?: number;
+  isImportant?: boolean;
+  isHidden?: boolean;
+  similarQuestions?: string[]; // Array of AI-generated similar questions
+  isGeneratingSimilar?: boolean; // Loading state for similar question generation
 }
 
 export interface Paper {
@@ -45,7 +49,7 @@ export interface FilterState {
   activeGroupId: string; // The group currently being edited in the UI
 }
 
-export type ViewMode = 'grouped' | 'separated'; // Grouped by main question or flat list
+export type ViewMode = 'separated' | 'grouped' | 'topic' | 'marks' | 'page';
 
 // --- Predictor Module Types ---
 

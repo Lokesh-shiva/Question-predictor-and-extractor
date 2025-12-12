@@ -256,3 +256,49 @@ export const analyzeExamPatterns = async (
     strategy: parsed.strategy
   };
 };
+
+export const generateSimilarQuestions = async (
+  questionText: string,
+  topic: string,
+  apiKey?: string
+): Promise<string[]> => {
+  const key = apiKey || process.env.API_KEY;
+  if (!key) throw new Error("API Key is missing.");
+
+  const ai = new GoogleGenAI({ apiKey: key });
+
+  const prompt = `
+    You are an expert teacher.
+    I need 5 similar practice questions based on the following question.
+    Original Question: "${questionText}"
+    Topic: "${topic}"
+    
+    Rules:
+    1. Keep the same difficulty level.
+    2. Keep the same question type (e.g. if it's a definition, give definitions; if numerical, give numericals with different values).
+    3. Ensure they are relevant to the topic.
+    
+    Output strictly a JSON array of strings.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING }
+      }
+    }
+  });
+
+  const jsonText = response.text;
+  if (!jsonText) return [];
+
+  const parsed = JSON.parse(jsonText);
+  if (Array.isArray(parsed)) {
+    return parsed as string[];
+  }
+  return [];
+};

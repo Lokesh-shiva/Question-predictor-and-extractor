@@ -5,9 +5,9 @@ import ProcessingView from './components/ProcessingView';
 import QuestionBrowser from './components/QuestionBrowser';
 import ExportScreen from './components/ExportScreen';
 import PredictorDashboard from './components/PredictorDashboard';
-import { Button, Modal, Input } from './components/UIComponents';
+import { Button, Modal, Input, ToastContainer, ToastMessage } from './components/UIComponents';
 import { convertFileToBase64, pdfToImages } from './services/pdfService';
-import { processPaperWithGemini, analyzeExamPatterns } from './services/geminiService';
+import { processPaperWithGemini, analyzeExamPatterns, generateSimilarQuestions } from './services/geminiService';
 
 const App: React.FC = () => {
   // --- Module State ---
@@ -44,6 +44,7 @@ const App: React.FC = () => {
   const [logs, setLogs] = useState<string[]>([]);
   const [userApiKey, setUserApiKey] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // --- Load API Key ---
   useEffect(() => {
@@ -54,21 +55,97 @@ const App: React.FC = () => {
   const saveApiKey = () => {
     localStorage.setItem('user_gemini_api_key', userApiKey);
     setIsSettingsOpen(false);
+    addToast("API Key saved successfully!", 'success');
   };
 
   // --- Handlers ---
 
   const addLog = (msg: string) => setLogs(prev => [...prev, msg]);
 
+  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = crypto.randomUUID();
+    setToasts(prev => [...prev, { id, message, type }]);
+    // Auto dismiss after 5 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  const handleQuestionUpdate = (id: string, updates: Partial<Question>) => {
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, ...updates } : q));
+  };
+
+  const handleGenerateSimilarQuestions = async (id: string) => {
+    const question = questions.find(q => q.id === id);
+    if (!question) return;
+
+    // Set loading state
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, isGeneratingSimilar: true } : q));
+
+    try {
+        const similarQs = await generateSimilarQuestions(
+            question.fullText, 
+            question.topic,
+            userApiKey || undefined
+        );
+        
+        setQuestions(prev => prev.map(q => q.id === id ? { 
+            ...q, 
+            similarQuestions: similarQs, 
+            isGeneratingSimilar: false 
+        } : q));
+        
+        addToast(`Generated 5 similar questions for Q${question.mainQuestionNumber}`, 'success');
+    } catch (e: any) {
+        setQuestions(prev => prev.map(q => q.id === id ? { ...q, isGeneratingSimilar: false } : q));
+        addToast(`Failed to generate questions: ${e.message}`, 'error');
+        if (e.message.includes("API Key")) setIsSettingsOpen(true);
+    }
+  };
+
   const processFiles = async (files: File[], target: 'extractor' | 'predictor') => {
+    // 1. Validation: API Key
+    if (!userApiKey && !process.env.API_KEY) {
+        addToast("API Key is missing. Please add it in Settings.", 'error');
+        setIsSettingsOpen(true);
+        return [];
+    }
+
     setIsProcessing(true);
     setLogs([]); // Clear logs for new run
     addLog(`Started processing ${files.length} files for ${target}...`);
 
     const newPapers: Paper[] = [];
     const extractedQuestions: Question[] = [];
+    
+    // 2. Validation: File Types
+    const supportedFiles: File[] = [];
+    const unsupportedFiles: File[] = [];
+    const supportedTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
 
-    for (const file of files) {
+    for (const f of files) {
+        if (supportedTypes.includes(f.type)) {
+            supportedFiles.push(f);
+        } else {
+            unsupportedFiles.push(f);
+        }
+    }
+
+    if (unsupportedFiles.length > 0) {
+        addToast(`Skipped ${unsupportedFiles.length} unsupported file(s). Use PDF, PNG, or JPG.`, 'error');
+    }
+
+    if (supportedFiles.length === 0) {
+        setIsProcessing(false);
+        if (unsupportedFiles.length === 0) addToast("No files selected.", 'info');
+        return [];
+    }
+
+    for (const file of supportedFiles) {
       const paperId = crypto.randomUUID();
       const newPaper: Paper = {
         id: paperId,
@@ -92,12 +169,6 @@ const App: React.FC = () => {
           addLog(`Reading Image: ${file.name}`);
           const base64 = await convertFileToBase64(file);
           images = [base64];
-        } else {
-            addLog(`Skipping unsupported: ${file.name}`);
-            const updateStatus = (p: Paper) => p.id === paperId ? {...p, status: 'error' as const, errorMsg: 'Unsupported'} : p;
-            if (target === 'extractor') setPapers(prev => prev.map(updateStatus));
-            else setPredictorPapers(prev => prev.map(updateStatus));
-            continue;
         }
 
         addLog(`Analyzing content for ${file.name}...`);
@@ -120,11 +191,32 @@ const App: React.FC = () => {
 
       } catch (error: any) {
         console.error(error);
-        addLog(`Error: ${error.message}`);
-        const updateError = (p: Paper) => p.id === paperId ? {...p, status: 'error' as const, errorMsg: error.message} : p;
-        if (target === 'extractor') setPapers(prev => prev.map(updateError));
-        else setPredictorPapers(prev => prev.map(updateError));
+        const errorMsg = error.message || "Unknown error";
+        addLog(`Error: ${errorMsg}`);
+        
+        // Specific Error Handling
+        if (errorMsg.includes("API Key") || errorMsg.includes("401") || errorMsg.includes("403")) {
+            addToast("API Key Error: Please check your key in settings.", 'error');
+            setIsSettingsOpen(true);
+            
+            // Fail this paper and stop processing others to save user time
+            const updateError = (p: Paper) => p.id === paperId ? {...p, status: 'error' as const, errorMsg: "API Key Error"} : p;
+            if (target === 'extractor') setPapers(prev => prev.map(updateError));
+            else setPredictorPapers(prev => prev.map(updateError));
+            
+            setIsProcessing(false);
+            return extractedQuestions; 
+        } else {
+            addToast(`Failed to process ${file.name}`, 'error');
+            const updateError = (p: Paper) => p.id === paperId ? {...p, status: 'error' as const, errorMsg: errorMsg} : p;
+            if (target === 'extractor') setPapers(prev => prev.map(updateError));
+            else setPredictorPapers(prev => prev.map(updateError));
+        }
       }
+    }
+
+    if (extractedQuestions.length > 0) {
+        addToast(`Successfully extracted ${extractedQuestions.length} questions!`, 'success');
     }
 
     setIsProcessing(false);
@@ -134,7 +226,7 @@ const App: React.FC = () => {
   const handleExtractorUpload = async (files: File[]) => {
     const newQs = await processFiles(files, 'extractor');
     setQuestions(prev => [...prev, ...newQs]);
-    if (newQs.length > 0 || papers.length > 0) setCurrentScreen('browse');
+    if (newQs.length > 0) setCurrentScreen('browse');
   };
 
   const handlePredictorUpload = async (files: File[]) => {
@@ -159,8 +251,11 @@ const App: React.FC = () => {
         );
         setPredictionReport(report);
         addLog("Prediction Analysis Complete.");
+        addToast("Pattern analysis complete!", 'success');
     } catch (e: any) {
         addLog(`Prediction Error: ${e.message}`);
+        addToast(`Prediction Failed: ${e.message}`, 'error');
+        if (e.message.includes("API Key")) setIsSettingsOpen(true);
     } finally {
         setIsProcessing(false);
     }
@@ -183,7 +278,9 @@ const App: React.FC = () => {
   // --- Render ---
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="min-h-screen flex flex-col bg-slate-50 relative">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -300,12 +397,14 @@ const App: React.FC = () => {
                             toggleSelection={toggleSelection}
                             papers={papers}
                             onExport={() => setCurrentScreen('export')}
+                            onUpdateQuestion={handleQuestionUpdate}
+                            onGenerateSimilar={handleGenerateSimilarQuestions}
                         />
                     )}
 
                     {currentScreen === 'export' && (
                         <ExportScreen 
-                            questions={questions.filter(q => selectedIds.has(q.id))}
+                            questions={questions.filter(q => selectedIds.has(q.id) && !q.isHidden)}
                             onBack={() => setCurrentScreen('browse')}
                         />
                     )}
