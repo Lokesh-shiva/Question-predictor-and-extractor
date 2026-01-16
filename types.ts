@@ -22,6 +22,19 @@ export interface Question {
   isHidden?: boolean;
   similarQuestions?: string[]; // Array of AI-generated similar questions
   isGeneratingSimilar?: boolean; // Loading state for similar question generation
+  // Verification fields
+  verificationStatus?: 'verified' | 'needs_correction' | 'rejected' | null;
+  verifiedAt?: string; // ISO timestamp
+  rejectedAt?: string; // ISO timestamp
+}
+
+// Verification action log entry
+export interface VerificationLogEntry {
+  questionId: string;
+  action: 'verified' | 'needs_correction' | 'rejected' | 'correction_saved';
+  timestamp: string;
+  previousText?: string;
+  newText?: string;
 }
 
 export interface Paper {
@@ -77,4 +90,5 @@ export interface PredictionReport {
   focusMap: TopicAnalysis[];
   predictedQuestions: PredictedQuestion[];
   strategy: string; // General advice text
+  uncertaintyIndex: import('./types/uncertaintyIndex').UncertaintyIndex;
 }

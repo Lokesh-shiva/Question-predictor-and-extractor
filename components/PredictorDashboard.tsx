@@ -1,165 +1,372 @@
-import React from 'react';
-import { PredictionReport, TopicAnalysis, PredictedQuestion } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { PredictionReport, TopicAnalysis, PredictedQuestion, Question } from '../types';
 import { Badge, Button, Card } from './UIComponents';
+import {
+    ResponsiveContainer,
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Cell,
+    PieChart,
+    Pie
+} from 'recharts';
+import { jsPDF } from 'jspdf';
+import { UncertaintyLevel, shouldShowPredictions, requiresPredictionOptIn } from '../types/uncertaintyIndex';
+import CoverageRiskMap from './CoverageRiskMap';
+import TemplatePatterns from './TemplatePatterns';
+import { generateCoverageMap } from '../services/coverageAnalysisService';
+import { detectTemplates } from '../services/templateDetectionService';
+import { TemplateReport } from '../types/templateDetection';
+
+// UI view state
+type DashboardView = 'predictions' | 'coverage' | 'templates';
 
 interface PredictorDashboardProps {
-  report: PredictionReport;
-  onReset: () => void;
+    report: PredictionReport;
+    onReset: () => void;
+    questions: Question[];
 }
 
-const PredictorDashboard: React.FC<PredictorDashboardProps> = ({ report, onReset }) => {
-  
-  const getProbabilityColor = (prob: string) => {
-    switch (prob.toLowerCase()) {
-      case 'high': return 'bg-green-100 text-green-800 border-green-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'low': return 'bg-slate-100 text-slate-600 border-slate-200';
-      default: return 'bg-slate-100 text-slate-800';
-    }
-  };
+const PredictorDashboard: React.FC<PredictorDashboardProps> = ({ report, onReset, questions }) => {
+    const [activeTab, setActiveTab] = useState<'overview' | 'topics' | 'questions'>('overview');
+    const [currentView, setCurrentView] = useState<DashboardView>('predictions');
+    const [showPredictionsOverride, setShowPredictionsOverride] = useState(false);
 
-  const downloadPrediction = () => {
-    const content = `
-EXAM PREDICTION REPORT
-Generated on: ${new Date(report.generatedAt).toLocaleDateString()}
---------------------------------------------------
+    // Computed data
+    const coverageData = useMemo(() => generateCoverageMap(questions), [questions]);
+    const templateReport = useMemo(() => detectTemplates(questions), [questions]);
 
-STRATEGY ADVICE:
-${report.strategy}
+    // Determine if we should gate features based on uncertainty
+    const uncertainty = report.uncertaintyIndex;
+    const isHighUncertainty = uncertainty.level === UncertaintyLevel.HIGH;
+    const isMediumUncertainty = uncertainty.level === UncertaintyLevel.MEDIUM;
 
---------------------------------------------------
-FOCUS MAP (HIGH PROBABILITY TOPICS):
-${report.focusMap.filter(t => t.probability === 'High').map(t => 
-  `- ${t.topicName} (Avg: ${t.avgMarks}) [Types: ${t.commonQuestionTypes.join(', ')}]`
-).join('\n')}
+    // Auto-switch to coverage view if uncertainty is high (as predictions are unsafe)
+    useEffect(() => {
+        if (isHighUncertainty) {
+            setCurrentView('coverage');
+        }
+    }, [isHighUncertainty]);
 
---------------------------------------------------
-PREDICTED & MUST-PRACTICE QUESTIONS:
-${report.predictedQuestions.map((q, i) => 
-  `${i+1}. [${q.confidence.toUpperCase()}] ${q.text}
-     Reason: ${q.reason}
-`).join('\n')}
-    `;
-    
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Prediction_Strategy_${new Date().toISOString().slice(0,10)}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+    const getProbabilityColor = (prob: string) => {
+        switch (prob) {
+            case 'High': return 'text-emerald-500 font-bold';
+            case 'Medium': return 'text-amber-500 font-semibold';
+            case 'Low': return 'text-slate-400';
+            default: return 'text-slate-400';
+        }
+    };
 
-  return (
-    <div className="space-y-8 pb-20">
-      {/* Header & Disclaimer */}
-      <div className="bg-indigo-900 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
-        <div className="relative z-10">
-            <div className="flex justify-between items-start">
+    const downloadPrediction = () => {
+        const doc = new jsPDF();
+
+        // Title
+        doc.setFontSize(20);
+        doc.text('Exam Prediction Report', 20, 20);
+
+        doc.setFontSize(12);
+        doc.text(`Generated on: ${new Date(report.generatedAt).toLocaleString()}`, 20, 30);
+
+        // Strategy
+        doc.setFontSize(16);
+        doc.text('Strategy Advice', 20, 45);
+        doc.setFontSize(12);
+        const splitStrategy = doc.splitTextToSize(report.strategy, 170);
+        doc.text(splitStrategy, 20, 55);
+
+        let yPos = 55 + (splitStrategy.length * 7) + 10;
+
+        // High Probability Topics
+        doc.setFontSize(16);
+        doc.text('High Probability Topics', 20, yPos);
+        yPos += 10;
+
+        doc.setFontSize(12);
+        report.focusMap
+            .filter(t => t.probability === 'High' || t.probability === 'Medium')
+            .forEach(t => {
+                if (yPos > 270) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+                doc.text(`• ${t.topicName} (${t.probability}) - Avg: ${t.avgMarks}`, 20, yPos);
+                yPos += 7;
+            });
+
+        // Template Patterns (New Section)
+        if (templateReport.templates.length > 0) {
+            if (yPos > 250) {
+                doc.addPage();
+                yPos = 20;
+            } else {
+                yPos += 10;
+            }
+
+            doc.setFontSize(16);
+            doc.text('Recurring Patterns', 20, yPos);
+            yPos += 10;
+
+            doc.setFontSize(12);
+            templateReport.templates.slice(0, 5).forEach(t => {
+                if (yPos > 270) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+                doc.text(`• ${t.pattern.displayName}: ${t.totalOccurrences} occurrences`, 20, yPos);
+                yPos += 7;
+            });
+        }
+
+        doc.save('prediction-report.pdf');
+    };
+
+    return (
+        <div className="space-y-6 animate-fadeIn">
+            {/* Header Section */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold mb-2">Next Paper Predictor</h2>
-                    <p className="text-indigo-200 text-sm max-w-2xl">
-                        Based on statistical analysis of your uploaded papers. 
-                        <br/>
-                        <span className="font-bold text-yellow-300">Disclaimer:</span> These are probability-based predictions, not guarantees. Use this to prioritize, but study the full syllabus.
-                    </p>
+                    <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                        <span>🔮</span> AI Analysis Dashboard
+                    </h2>
+                    <p className="text-slate-600">Based on {questions.length} historical questions</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="secondary" onClick={downloadPrediction}>Export Plan</Button>
-                    <Button variant="outline" className="text-white border-indigo-400 hover:bg-indigo-800" onClick={onReset}>New Analysis</Button>
+                <div className="flex gap-3">
+                    <Button variant="outline" onClick={onReset}>
+                        New Analysis
+                    </Button>
+                    <Button onClick={downloadPrediction} disabled={currentView === 'coverage'}>
+                        Download Report 📥
+                    </Button>
                 </div>
-            </div>
-            
-            <div className="mt-6 bg-indigo-800/50 p-4 rounded-lg border border-indigo-700">
-                <h4 className="text-xs font-bold text-indigo-300 uppercase mb-1">AI Strategy Insight</h4>
-                <p className="text-sm leading-relaxed">{report.strategy}</p>
-            </div>
-        </div>
-        {/* Decorative background element */}
-        <div className="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-indigo-600 rounded-full opacity-20 blur-3xl"></div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Col: Focus Map */}
-        <div className="lg:col-span-2 space-y-6">
-            <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-slate-800 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 mr-2 text-indigo-600">
-                        <path fillRule="evenodd" d="M1.5 4.5a3 3 0 0 1 3-3h1.372c.86 0 1.61.586 1.819 1.42l1.105 4.423a1.875 1.875 0 0 1-.694 1.955l-1.293.97c-.135.101-.164.249-.126.352a11.285 11.285 0 0 0 6.697 6.697c.103.038.25.009.352-.126l.97-1.293a1.875 1.875 0 0 1 1.955-.694l4.423 1.105c.834.209 1.42.959 1.42 1.82V19.5a3 3 0 0 1-3 3h-2.25C8.552 22.5 1.5 15.448 1.5 5.25V4.5Z" clipRule="evenodd" />
-                    </svg>
-                    Focus Map
-                </h3>
-                <span className="text-sm text-slate-500">Prioritize High & Rising topics</span>
             </div>
 
-            <div className="grid gap-4">
-                {report.focusMap.sort((a,b) => (a.probability === 'High' ? -1 : 1)).map((topic, idx) => (
-                    <div key={idx} className={`p-4 rounded-xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white hover:shadow-md transition-shadow ${topic.probability === 'High' ? 'border-l-4 border-l-green-500 shadow-sm' : 'border-slate-200'}`}>
-                        <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                                <h4 className="font-bold text-lg text-slate-800">{topic.topicName}</h4>
-                                {topic.coverageGap && (
-                                    <span className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide animate-pulse">
-                                        Gap Detected
-                                    </span>
-                                )}
-                            </div>
-                            <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                                <span>Avg Weightage: <strong className="text-slate-700">{topic.avgMarks}</strong></span>
-                                <span className="w-1 h-1 bg-slate-300 rounded-full self-center"></span>
-                                <span>Usually: {topic.commonQuestionTypes.join(', ')}</span>
-                            </div>
+            {/* Uncertainty Warning Banner */}
+            {(isHighUncertainty || isMediumUncertainty) && (
+                <div className={`rounded-xl p-4 border ${isHighUncertainty ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                    <div className="flex items-start gap-3">
+                        <div className={`text-xl ${isHighUncertainty ? 'text-red-500' : 'text-amber-500'}`}>
+                            {isHighUncertainty ? '⚠️' : '✋'}
                         </div>
-                        
-                        <div className="flex items-center gap-3">
-                             <div className="text-right">
-                                <div className={`px-3 py-1 rounded-lg text-xs font-bold border uppercase tracking-wide text-center ${getProbabilityColor(topic.probability)}`}>
-                                    {topic.probability} Prob.
+                        <div>
+                            <h4 className={`font-bold ${isHighUncertainty ? 'text-red-700' : 'text-amber-700'}`}>
+                                {uncertainty.label} ({Math.round(uncertainty.score * 100)}% Uncertainty)
+                            </h4>
+                            <p className="text-slate-700 text-sm mt-1">
+                                {uncertainty.explanation}
+                            </p>
+                            {isHighUncertainty && (
+                                <div className="mt-3 text-sm bg-red-100 p-2 rounded text-red-800">
+                                    <strong>Note:</strong> Predictive features are disabled to prevent misleading guidance.
+                                    Please review the <strong>Coverage Map</strong> instead.
                                 </div>
-                                <div className={`text-[10px] mt-1 text-center font-medium ${topic.trend === 'rising' ? 'text-green-600' : topic.trend === 'falling' ? 'text-red-500' : 'text-slate-400'}`}>
-                                    Trend: {topic.trend.charAt(0).toUpperCase() + topic.trend.slice(1)}
-                                </div>
-                             </div>
+                            )}
                         </div>
                     </div>
-                ))}
+                </div>
+            )}
+
+            {/* View Switcher Tabs */}
+            <div className="flex p-1 bg-slate-100 rounded-lg w-fit border border-slate-200">
+                <button
+                    onClick={() => setCurrentView('coverage')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${currentView === 'coverage'
+                        ? 'bg-indigo-600 text-white shadow-lg'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                        }`}
+                >
+                    🗺️ Coverage Map
+                </button>
+                <button
+                    onClick={() => setCurrentView('templates')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${currentView === 'templates'
+                        ? 'bg-indigo-600 text-white shadow-lg'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                        }`}
+                >
+                    🧩 Recurring Patterns <span className="ml-1 text-xs bg-indigo-100 text-indigo-700 px-1.5 rounded-full">NEW</span>
+                </button>
+                <button
+                    onClick={() => setCurrentView('predictions')}
+                    disabled={isHighUncertainty}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${currentView === 'predictions'
+                        ? 'bg-indigo-600 text-white shadow-lg'
+                        : isHighUncertainty
+                            ? 'text-slate-400 cursor-not-allowed'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                        }`}
+                >
+                    🔮 Predictions {isHighUncertainty && '🔒'}
+                </button>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="min-h-[500px]">
+                {/* Coverage Map View */}
+                {currentView === 'coverage' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <CoverageRiskMap data={coverageData} onClose={() => setCurrentView('predictions')} />
+                    </div>
+                )}
+
+                {/* Template Patterns View */}
+                {currentView === 'templates' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <TemplatePatterns report={templateReport} />
+                    </div>
+                )}
+
+                {/* Prediction View */}
+                {currentView === 'predictions' && (
+                    <>
+                        {/* Prediction Opt-In Gate (for Medium Uncertainty) */}
+                        {isMediumUncertainty && !showPredictionsOverride ? (
+                            <div className="flex flex-col items-center justify-center p-12 bg-slate-50 rounded-2xl border border-slate-200 text-center">
+                                <div className="text-5xl mb-4">🛡️</div>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">Predictions require caution</h3>
+                                <p className="text-slate-600 max-w-lg mb-6">
+                                    Data quantity is moderate. AI predictions might miss edge cases.
+                                    We recommend relying on the <strong>Coverage Map</strong> and <strong>Recurring Patterns</strong> first.
+                                </p>
+                                <div className="flex gap-4">
+                                    <Button variant="secondary" onClick={() => setCurrentView('coverage')}>
+                                        View Coverage Map Instead
+                                    </Button>
+                                    <Button variant="outline" onClick={() => setShowPredictionsOverride(true)}>
+                                        Show Predictions Anyway
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            /* Actual Prediction Content */
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                {/* Left Column: Stats & Strategy */}
+                                <div className="space-y-6">
+                                    <Card className="p-5 border-l-4 border-l-indigo-500">
+                                        <h3 className="font-bold text-lg mb-2 flex items-center gap-2 text-slate-900">
+                                            <span>🎯</span> Exam Strategy
+                                        </h3>
+                                        <p className="text-slate-600 leading-relaxed text-sm">
+                                            {report.strategy}
+                                        </p>
+                                    </Card>
+
+                                    <Card className="p-5">
+                                        <h3 className="font-bold text-lg mb-4 text-slate-900">Topic Probability</h3>
+                                        <div className="h-64">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={report.focusMap.slice(0, 5)} layout="vertical">
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                                                    <XAxis type="number" stroke="#64748b" />
+                                                    <YAxis
+                                                        dataKey="topicName"
+                                                        type="category"
+                                                        width={100}
+                                                        tick={{ fontSize: 11, fill: '#334155' }}
+                                                    />
+                                                    <Tooltip
+                                                        contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', color: '#1e293b' }}
+                                                        itemStyle={{ color: '#6366f1' }}
+                                                        cursor={{ fill: '#f1f5f9', opacity: 0.8 }}
+                                                    />
+                                                    <Bar dataKey="probability" name="Probability" fill="#6366f1" radius={[0, 4, 4, 0]}>
+                                                        {report.focusMap.slice(0, 5).map((entry, index) => (
+                                                            <Cell key={`cell-${index}`} fill={entry.probability === 'High' ? '#10b981' : entry.probability === 'Medium' ? '#f59e0b' : '#64748b'} />
+                                                        ))}
+                                                    </Bar>
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </Card>
+                                </div>
+
+                                {/* Right Column: Detailed Breakdown */}
+                                <div className="lg:col-span-2 space-y-6">
+                                    {/* Tabs */}
+                                    <div className="border-b border-slate-200 flex gap-6">
+                                        <button
+                                            className={`pb-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'overview' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                            onClick={() => setActiveTab('overview')}
+                                        >
+                                            Priority Topics
+                                        </button>
+                                        <button
+                                            className={`pb-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'questions' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                            onClick={() => setActiveTab('questions')}
+                                        >
+                                            Predicted Questions
+                                        </button>
+                                    </div>
+
+                                    {/* Tab Content */}
+                                    <div className="space-y-3">
+                                        {activeTab === 'overview' && (
+                                            <div className="space-y-3">
+                                                {report.focusMap.map((topic, idx) => (
+                                                    <Card key={idx} className="flex items-center justify-between p-4 hover:border-indigo-300 transition-colors">
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <h4 className="font-semibold text-slate-900">{topic.topicName}</h4>
+                                                                {topic.coverageGap && (
+                                                                    <Badge color="yellow">Coverage Gap!</Badge>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex gap-3 text-xs text-slate-500">
+                                                                <span>Avg Marks: {topic.avgMarks}</span>
+                                                                <span>• Types: {topic.commonQuestionTypes.join(', ')}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className={`font-bold ${getProbabilityColor(topic.probability)} w-20 text-right`}>
+                                                            {topic.probability}
+                                                        </div>
+                                                    </Card>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {activeTab === 'questions' && (
+                                            <div className="space-y-4">
+                                                {report.predictedQuestions.length === 0 ? (
+                                                    <Card className="p-8 text-center">
+                                                        <div className="text-4xl mb-3">📝</div>
+                                                        <p className="text-slate-600">No predicted questions available for this analysis.</p>
+                                                    </Card>
+                                                ) : (
+                                                    report.predictedQuestions.map((q) => (
+                                                        <Card key={q.id} className="p-4 hover:shadow-md transition-shadow">
+                                                            <div className="flex justify-between items-start mb-2">
+                                                                <Badge color={q.confidence === 'high' ? 'green' : q.confidence === 'medium' ? 'yellow' : 'gray'}>
+                                                                    {q.confidence.toUpperCase()} Confidence
+                                                                </Badge>
+                                                                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                                                    {q.type}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-slate-800 font-medium mb-3">"{q.text}"</p>
+                                                            <div className="flex justify-between items-end">
+                                                                <div className="text-xs text-slate-500">
+                                                                    Sources: {q.sourceTopics.join(', ')}
+                                                                </div>
+                                                                <div className="text-xs text-indigo-600 italic">
+                                                                    Why: {q.reason}
+                                                                </div>
+                                                            </div>
+                                                        </Card>
+                                                    ))
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
         </div>
-
-        {/* Right Col: Questions */}
-        <div className="space-y-6">
-            <h3 className="text-xl font-bold text-slate-800 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 mr-2 text-indigo-600">
-                    <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25Zm-1.72 6.97a.75.75 0 1 0-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 1 0 1.06 1.06L12 13.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L13.06 12l1.72-1.72a.75.75 0 1 0-1.06-1.06L12 10.94l-1.72-1.72Z" clipRule="evenodd" />
-                </svg>
-                Predicted Questions
-            </h3>
-
-            <div className="space-y-4">
-                {report.predictedQuestions.map((q, idx) => (
-                    <Card key={q.id} className="p-4 bg-white border-l-4 border-l-indigo-500">
-                        <div className="mb-2 flex justify-between items-start">
-                            <Badge color={q.type === 'repeated' ? 'red' : q.type === 'template' ? 'blue' : 'gray'}>
-                                {q.type === 'repeated' ? 'Repeated' : q.type === 'template' ? 'Pattern Match' : 'Concept'}
-                            </Badge>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">{q.confidence} Confidence</span>
-                        </div>
-                        <p className="font-medium text-slate-800 text-sm mb-2">
-                            {q.text}
-                        </p>
-                        <div className="bg-slate-50 p-2 rounded text-xs text-slate-500 italic">
-                            Why: {q.reason}
-                        </div>
-                    </Card>
-                ))}
-            </div>
-        </div>
-
-      </div>
-    </div>
-  );
+    );
 };
 
 export default PredictorDashboard;

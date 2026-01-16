@@ -1,0 +1,123 @@
+/* PWA-specific animations and styles */
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out forwards;
+}
+
+/* Smooth transitions for PWA install banner */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+
+/* Verification Controls Styles */
+.verification-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.verification-controls button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.btn-verify {
+  background: #d1fae5;
+  color: #047857;
+  border: 1px solid #6ee7b7;
+}
+
+.btn-verify:hover {
+  background: #a7f3d0;
+  border-color: #34d399;
+}
+
+.btn-verify.active {
+  background: #059669;
+  color: white;
+  border-color: #047857;
+}
+
+.btn-correct {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fcd34d;
+}
+
+.btn-correct:hover {
+  background: #fde68a;
+  border-color: #f59e0b;
+}
+
+.btn-reject {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+.btn-reject:hover {
+  background: #fecaca;
+  border-color: #ef4444;
+}
+
+.btn-reject.active {
+  background: #dc2626;
+  color: white;
+  border-color: #b91c1c;
+}
+
+.verification-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.verification-badge.verified {
+  background: #059669;
+  color: white;
+}
+
+.verification-badge.rejected {
+  background: #dc2626;
+  color: white;
+}
+
+.verification-badge.needs-correction {
+  background: #d97706;
+  color: white;
+}

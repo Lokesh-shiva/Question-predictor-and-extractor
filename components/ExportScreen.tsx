@@ -144,7 +144,7 @@ const ExportScreen: React.FC<ExportScreenProps> = ({ questions, onBack }) => {
             </svg>
             Back to Browser
         </Button>
-        <h2 className="text-2xl font-bold text-slate-800">Review & Export</h2>
+        <h2 className="text-2xl font-bold text-slate-900">Review & Export</h2>
         <div className="w-24"></div> {/* Spacer */}
       </div>
 
@@ -152,13 +152,13 @@ const ExportScreen: React.FC<ExportScreenProps> = ({ questions, onBack }) => {
         
         {/* Left Column: List (Wrapped for Capture) */}
         <div className="md:col-span-2 space-y-4" ref={printRef} style={{ padding: '20px', background: 'white' }}>
-            <h3 className="text-lg font-semibold text-slate-700 mb-4">Selected Questions ({questions.length})</h3>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Selected Questions ({questions.length})</h3>
             {questions.map((q, i) => (
                 <Card key={q.id} className="p-4 bg-white mb-4 border-slate-200">
                     <div className="flex gap-3">
                         <span className="font-bold text-slate-400 select-none">{i+1}.</span>
                         <div className="flex-1">
-                            <p className="text-slate-800 mb-2">{q.fullText}</p>
+                            <p className="text-slate-900 mb-2">{q.fullText}</p>
                             <div className="flex gap-2">
                                 <Badge>{q.topic}</Badge>
                                 {q.marks && <Badge color="yellow">{q.marks}M</Badge>}
@@ -170,12 +170,12 @@ const ExportScreen: React.FC<ExportScreenProps> = ({ questions, onBack }) => {
         </div>
 
         {/* Right Column: Actions */}
-        <div className="bg-white rounded-xl shadow-lg border border-slate-100 p-6 h-fit sticky top-6">
-            <h3 className="text-lg font-bold text-slate-800 mb-4">Export Options</h3>
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 h-fit sticky top-6">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Export Options</h3>
             
             {/* File Format Export */}
             <div className="mb-6 pb-6 border-b border-slate-100">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Text/Code Format</label>
+                <label className="block text-sm font-medium text-slate-900 mb-2">Text/Code Format</label>
                 <div className="flex gap-2 mb-3">
                     <select 
                         value={format} 
@@ -194,7 +194,7 @@ const ExportScreen: React.FC<ExportScreenProps> = ({ questions, onBack }) => {
 
             {/* Visual Export */}
             <div>
-                 <label className="block text-sm font-medium text-slate-700 mb-2">Visual Format</label>
+                 <label className="block text-sm font-medium text-slate-900 mb-2">Visual Format</label>
                  <div className="space-y-3">
                     <Button 
                         onClick={handleExportPDF} 
@@ -229,7 +229,7 @@ const ExportScreen: React.FC<ExportScreenProps> = ({ questions, onBack }) => {
                  </div>
             </div>
             
-            <div className="mt-6 pt-6 border-t border-slate-100 text-sm text-slate-500">
+            <div className="mt-6 pt-6 border-t border-slate-100 text-sm text-slate-600">
                 <p>Tips:</p>
                 <ul className="list-disc pl-4 mt-2 space-y-1">
                     <li>PDF export is best for printing.</li>

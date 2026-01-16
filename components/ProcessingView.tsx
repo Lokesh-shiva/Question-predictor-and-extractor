@@ -10,11 +10,11 @@ interface ProcessingViewProps {
 const ProcessingView: React.FC<ProcessingViewProps> = ({ papers, logs }) => {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-      <h2 className="text-lg font-semibold text-slate-800 mb-4">Processing Status</h2>
+      <h2 className="text-lg font-semibold text-slate-900 mb-4">Processing Status</h2>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-            <h3 className="text-sm font-medium text-slate-500 mb-2 uppercase tracking-wide">Files</h3>
+            <h3 className="text-sm font-medium text-slate-600 mb-2 uppercase tracking-wide">Files</h3>
             <ul className="space-y-3">
                 {papers.map(paper => (
                 <li key={paper.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
@@ -34,8 +34,8 @@ const ProcessingView: React.FC<ProcessingViewProps> = ({ papers, logs }) => {
             </ul>
         </div>
         
-        <div className="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 overflow-y-auto max-h-[200px] custom-scroll">
-            <h3 className="text-slate-500 mb-2 uppercase tracking-wide font-sans font-bold">Activity Log</h3>
+        <div className="bg-slate-900 rounded-lg p-4 font-mono text-xs text-emerald-400 overflow-y-auto max-h-[200px] custom-scroll">
+            <h3 className="text-slate-400 mb-2 uppercase tracking-wide font-sans font-bold">Activity Log</h3>
             <div className="flex flex-col-reverse">
                 {logs.map((log, i) => (
                     <div key={i} className="mb-1 border-b border-slate-800 pb-1 last:border-0">

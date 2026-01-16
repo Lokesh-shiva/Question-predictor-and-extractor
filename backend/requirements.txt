@@ -1,0 +1,17 @@
+# RAG Backend Dependencies
+# Install in virtual environment: python -m venv venv && venv\Scripts\activate
+
+# Web Framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Embeddings & Vector Search
+sentence-transformers==3.3.1
+faiss-cpu==1.9.0.post1
+
+# Data Validation
+pydantic==2.10.4
+
+# Utilities
+numpy==2.2.0
+python-multipart==0.0.19
