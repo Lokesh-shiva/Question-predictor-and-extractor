@@ -77,11 +77,27 @@ const App: React.FC = () => {
     const [isArtifactManagerOpen, setIsArtifactManagerOpen] = useState(false);
     const [isArtifactSelectorOpen, setIsArtifactSelectorOpen] = useState(false);
     const [selectedArtifactsInfo, setSelectedArtifactsInfo] = useState<SelectedArtifactInfo[]>([]);
+    const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
+    const [isDemoMode, setIsDemoMode] = useState(false);
 
     // --- Load API Key and Initialize Artifact Service ---
     useEffect(() => {
         const savedKey = localStorage.getItem('user_gemini_api_key');
         if (savedKey) setUserApiKey(savedKey);
+
+        const hasSeenWelcome = localStorage.getItem('has_seen_welcome_modal');
+        const envKey = process.env.API_KEY;
+
+        // Check if envKey is a valid API key (not undefined, empty, or a placeholder)
+        const hasValidEnvKey = envKey &&
+            envKey.length > 10 &&
+            !envKey.toLowerCase().includes('placeholder') &&
+            envKey.startsWith('AIza');
+
+        if (!savedKey && !hasValidEnvKey && !hasSeenWelcome) {
+            // Show welcome modal after a brief delay
+            setTimeout(() => setIsWelcomeOpen(true), 1500);
+        }
 
         // Initialize artifact service (cleanup expired artifacts)
         initializeArtifactService().then(async () => {
@@ -121,6 +137,18 @@ const App: React.FC = () => {
         localStorage.setItem('user_gemini_api_key', userApiKey);
         setIsSettingsOpen(false);
         addToast("API Key saved successfully!", 'success');
+    };
+
+    const handleWelcomeSave = () => {
+        localStorage.setItem('user_gemini_api_key', userApiKey);
+        localStorage.setItem('has_seen_welcome_modal', 'true');
+        setIsWelcomeOpen(false);
+        addToast("API Key saved! You're ready to use AI features.", 'success');
+    };
+
+    const handleSkipWelcome = () => {
+        localStorage.setItem('has_seen_welcome_modal', 'true');
+        setIsWelcomeOpen(false);
     };
 
     // --- Handlers ---
@@ -465,6 +493,15 @@ const App: React.FC = () => {
             return;
         }
 
+        // In demo mode, use mock prediction report directly (no API key needed)
+        if (isDemoMode) {
+            setPredictionReport(MOCK_PREDICTION_REPORT);
+            addLog(`🧪 Demo mode: Using mock prediction report`);
+            addToast("Demo analysis complete! Showing mock predictions.", 'success');
+            setActiveModule('predictor');
+            return;
+        }
+
         if (!userApiKey && !process.env.API_KEY) {
             addToast("API Key is missing. Please add it in Settings.", 'error');
             setIsSettingsOpen(true);
@@ -546,7 +583,7 @@ const App: React.FC = () => {
         }
     };
 
-    // Demo data loader for testing
+    // Demo data loader for testing - loads mock data but shows setup page first
     const handleLoadDemoData = () => {
         setQuestions(MOCK_QUESTIONS);
         setPredictorQuestions(MOCK_QUESTIONS);
@@ -560,9 +597,10 @@ const App: React.FC = () => {
             { id: 'mock-paper-2022', filename: 'Fluids_2022.pdf', uploadDate: Date.now(), status: 'done', totalQuestions: 3 },
             { id: 'mock-paper-2021', filename: 'Fluids_2021.pdf', uploadDate: Date.now(), status: 'done', totalQuestions: 2 }
         ]);
-        setPredictionReport(MOCK_PREDICTION_REPORT);
+        // Don't set predictionReport - show setup page first like the regular Predictor flow
+        setIsDemoMode(true);
         setActiveModule('predictor');
-        addToast("Loaded demo data for testing!", "success");
+        addToast("Demo data loaded! Click 'Start AI Analysis' to see predictions.", "success");
         setShowHomePage(false);
     };
 
@@ -647,6 +685,37 @@ const App: React.FC = () => {
                         <div className="flex justify-end gap-2 pt-2">
                             <Button variant="ghost" onClick={() => setIsSettingsOpen(false)}>Cancel</Button>
                             <Button onClick={saveApiKey}>Save & Close</Button>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* Welcome Modal */}
+                <Modal isOpen={isWelcomeOpen} onClose={() => { }} title="Welcome to ExamExtractor! 🎓">
+                    <div className="space-y-4">
+                        <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-sm text-indigo-800">
+                            <p className="font-semibold mb-1">supercharge your study workflow</p>
+                            <p>To use the AI question extraction and prediction features, you'll need a Google Gemini API Key. It's free and easy to get!</p>
+                        </div>
+
+                        <div>
+                            <Input
+                                label="Gemini API Key"
+                                placeholder="Paste your API Key here (starts with AIza...)"
+                                value={userApiKey}
+                                onChange={(e) => setUserApiKey(e.target.value)}
+                                type="password"
+                            />
+                            <div className="mt-2 text-xs flex justify-between items-center text-slate-500">
+                                <span>Your key is stored locally in your browser.</span>
+                                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline font-medium">
+                                    Get free API Key &rarr;
+                                </a>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
+                            <Button variant="ghost" onClick={handleSkipWelcome}>Skip for now</Button>
+                            <Button onClick={handleWelcomeSave} disabled={!userApiKey}>Save & Get Started</Button>
                         </div>
                     </div>
                 </Modal>
@@ -751,6 +820,37 @@ const App: React.FC = () => {
                     <div className="flex justify-end gap-2 pt-2">
                         <Button variant="ghost" onClick={() => setIsSettingsOpen(false)}>Cancel</Button>
                         <Button onClick={saveApiKey}>Save & Close</Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Welcome Modal (Main View) */}
+            <Modal isOpen={isWelcomeOpen} onClose={() => { }} title="Welcome to ExamExtractor! 🎓">
+                <div className="space-y-4">
+                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-sm text-indigo-800">
+                        <p className="font-semibold mb-1">Supercharge your study workflow</p>
+                        <p>To use the AI question extraction and prediction features, you'll need a Google Gemini API Key. It's free and easy to get!</p>
+                    </div>
+
+                    <div>
+                        <Input
+                            label="Gemini API Key"
+                            placeholder="Paste your API Key here (starts with AIza...)"
+                            value={userApiKey}
+                            onChange={(e) => setUserApiKey(e.target.value)}
+                            type="password"
+                        />
+                        <div className="mt-2 text-xs flex justify-between items-center text-slate-500">
+                            <span>Your key is stored locally in your browser.</span>
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline font-medium">
+                                Get free API Key &rarr;
+                            </a>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-4">
+                        <Button variant="ghost" onClick={handleSkipWelcome}>Skip for now</Button>
+                        <Button onClick={handleWelcomeSave} disabled={!userApiKey}>Save & Get Started</Button>
                     </div>
                 </div>
             </Modal>
@@ -1033,6 +1133,7 @@ const App: React.FC = () => {
                                         setPredictorQuestions([]);
                                         setPredictorPapers([]);
                                         setLogs([]);
+                                        setIsDemoMode(false);
                                     }}
                                 />
                             )}
